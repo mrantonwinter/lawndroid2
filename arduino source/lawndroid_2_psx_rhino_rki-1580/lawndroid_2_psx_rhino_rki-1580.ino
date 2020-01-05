@@ -1,5 +1,6 @@
 #include <Psx.h>
 #include <Servo.h>
+//#include <ServoTimer2.h>
 
 
 ////////////////////////////////////////////////////////////////
@@ -55,6 +56,9 @@ bool cutterOn = false;
 Servo frontServo;
 Servo rearServo;
 
+#define rearServoMin 60
+#define rearServoMax 160
+#define servoStep 2
 
 ////////////////////////////////////////////////////////////////
 // drive motors setup and config
@@ -70,6 +74,9 @@ Servo rearServo;
 // direction change delay to protect the circuits from frying when suddenly changing
 #define directionChangeDelay 50
 bool fast = false;
+
+int originalTCCR1A;
+int originalTCCR1B;
 
 ////////////////////////////////////////////////////////////////
 //
@@ -88,7 +95,7 @@ void setup()
   //servo motors
 
   //frontServo.attach(FrontServoChannel);
-  //rearServo.attach(RearServoChannel);
+  rearServo.attach(RearServoChannel);
 
   //make sure cutter is off
   cutterServo.attach(CutterServoChannel);
@@ -101,6 +108,8 @@ void setup()
   pinMode(rDirPin, OUTPUT);
   pinMode(lDirPin, OUTPUT);
 
+  originalTCCR1A = TCCR1A;
+  originalTCCR1B = TCCR1B;
 
 }
 
@@ -141,17 +150,17 @@ void loop()
 //
 void  CutterLoop(int data) {
   //turns on the cutter and led if the playstation left button 2 is pressed
-  if (data & psxL2){
-    if (!cutterOn){
-      cutterOn = true; 
+  if (data & psxL2) {
+    if (!cutterOn) {
+      cutterOn = true;
       Cutter(true);
-      Led(true); 
+      Led(true);
     }
   }
   else if (cutterOn) {
-      Cutter(false);
-      Led(false);     
-      cutterOn = false; 
+    Cutter(false);
+    Led(false);
+    cutterOn = false;
   }
 
 }
@@ -161,12 +170,41 @@ void  CutterLoop(int data) {
 // change the height of the legs loop
 //
 void  HeightLoop(int data) {
-  // TODO
+
+  int rearServoAngle = rearServo.read();
+
+ 
+  if (data & psxL1)  {
+    rearServoAngle -= servoStep;
+    if (rearServoAngle < rearServoMin){
+      rearServoAngle = rearServoMin;
+    }
+
+    ResetPWMTimer();
+
+    rearServo.write(rearServoAngle);
+  }
+
+  if (data & psxR1) {
+    rearServoAngle += servoStep;
+    if (rearServoAngle > rearServoMax){
+      rearServoAngle = rearServoMax;
+    }
+
+    ResetPWMTimer();
   
-  //Serial.print("servo: ");
-  //Serial.println(frontServo.read());
+    rearServo.write(rearServoAngle);
+  }
 }
 
+// the motor drivers and the servo pwm timers conflict,
+// so to use the servo's we have to reset the pwm timers
+// this stops the droid moving, but that is an ok trade off
+void ResetPWMTimer(){
+    Stop(); //stop the motors running
+    TCCR1A = originalTCCR1A;
+    TCCR1B = originalTCCR1B;  
+}
 
 ////////////////////////////////////////////////////////////////
 //
@@ -244,7 +282,7 @@ void SetPWM()
   // https://www.eprojectszone.com/how-to-modify-the-pwm-frequency-on-the-arduino-part1/
   // https://www.arduino.cc/en/Tutorial/SecretsOfArduinoPWM
 
-  
+
 
   if (fast) {
     //medium pace, no whine
@@ -254,9 +292,9 @@ void SetPWM()
     OCR1B = 12; //changing this doesnt seem to change the speed
   }
   else {
-    //slow lots of whine
+    //slow lots of whine  
     TCCR1A = B10100001; //_BV(COM2A1) | _BV(COM2B1) | _BV(WGM20); //phase correct PWM, compare match A and compare match B
-    TCCR1B = 0b00000010;  // 1/8 prescale,  
+    TCCR1B = 0b00000010;  // 1/8 prescale,
     OCR1A = 12; //changing this doesnt seem to change the speed
     OCR1B = 12; //changing this doesnt seem to change the speed
   }
@@ -267,12 +305,12 @@ void SetDirection(bool rightDirectionPin, bool leftDirectionPin)
   // stop and delay to protect the circuits from frying on a reversal of direction
   Stop();
   delay(directionChangeDelay);
-  
+
   //extra delay to protect circuits from frying when moving fast
-  if (fast){
-    delay(directionChangeDelay);  
+  if (fast) {
+    delay(directionChangeDelay);
   }
-  
+
   //set the arduino pins to the right direction
   digitalWrite(rDirPin, rightDirectionPin);
   digitalWrite(lDirPin, leftDirectionPin);
